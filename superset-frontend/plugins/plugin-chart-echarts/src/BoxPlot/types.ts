@@ -31,7 +31,12 @@ export type BoxPlotQueryFormData = QueryFormData & {
   whiskerOptions?: BoxPlotFormDataWhiskerOptions;
   xTickLayout?: BoxPlotFormXTickLayout;
   yAxisSlider?: boolean;
+  distributionStyle?: BoxPlotDistributionStyle;
+  densityBandwidth?: number | string;
+  showInnerBox?: boolean;
 } & TitleFormData;
+
+export type BoxPlotDistributionStyle = 'box' | 'violin';
 
 export type BoxPlotFormDataWhiskerOptions =
   | 'Tukey'
@@ -51,6 +56,9 @@ export type BoxPlotFormXTickLayout =
 // @ts-expect-error
 export const DEFAULT_FORM_DATA: BoxPlotQueryFormData = {
   ...DEFAULT_TITLE_FORM_DATA,
+  distributionStyle: 'box',
+  densityBandwidth: 1,
+  showInnerBox: true,
 };
 
 export interface EchartsBoxPlotChartProps extends BaseChartProps<BoxPlotQueryFormData> {

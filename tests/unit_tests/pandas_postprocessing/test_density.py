@@ -138,9 +138,39 @@ def test_constant_group() -> None:
     assert result["points"] == [[3.0, 1.0]]
 
 
-def test_near_constant_is_constant() -> None:
-    x = 1e6 + np.arange(10) * 1e-12
+def test_spread_below_relative_epsilon_is_constant() -> None:
+    base = 1e6
+    x = np.array([base, np.nextafter(base, np.inf), base])
+    assert x.max() - x.min() <= 1e-12 * base
     assert estimate_density(x)["status"] == "constant"
+
+
+def test_real_small_spread_is_not_constant() -> None:
+    x = 1e6 + np.arange(10) * 1e-4
+    assert estimate_density(x)["status"] == "ok"
+
+
+@pytest.mark.parametrize("scale", [1e-15, 1e-100, 1e-300])
+def test_tiny_magnitude_data_is_not_constant(scale) -> None:
+    result = estimate_density(_unimodal() * scale)
+    assert result["status"] == "ok"
+    assert len(result["points"]) == 100
+    json.dumps(result, allow_nan=False)
+
+
+def test_overflowing_range_falls_back_with_log(caplog) -> None:
+    with caplog.at_level(logging.WARNING, logger=density_module.logger.name):
+        result = estimate_density([-1e308, 1e308, 0.0])
+    assert result["status"] == "constant"
+    assert result["count"] == 3
+    assert "overflows" in caplog.text
+
+
+def test_subnormal_spread_does_not_crash() -> None:
+    x = np.array([0.0, 5e-324, 1e-323, 5e-324])
+    result = estimate_density(x)
+    assert result["status"] in {"ok", "constant"}
+    json.dumps(result, allow_nan=False)
 
 
 def test_zero_iqr_with_outliers_is_not_a_spike() -> None:
@@ -182,8 +212,8 @@ def test_datetime_is_rejected() -> None:
         (64.0, 1.0),
         ("64", 1.0),
         (None, 1.0),
-        (15, 1.0),
-        (257, 1.0),
+        (19, 1.0),
+        (501, 1.0),
         (0, 1.0),
         (-5, 1.0),
         (64, True),
@@ -207,7 +237,7 @@ def test_invalid_settings(points, bandwidth) -> None:
         make_density_operators(points, bandwidth)
 
 
-@pytest.mark.parametrize("points", [16, 64, 256])
+@pytest.mark.parametrize("points", [20, 100, 500])
 @pytest.mark.parametrize("bandwidth", [0.1, 1.0, 5.0])
 def test_valid_settings_bounds(points, bandwidth) -> None:
     validate_density_settings(points, bandwidth)
@@ -218,45 +248,33 @@ def test_numpy_integer_points_are_accepted() -> None:
     validate_density_settings(np.int64(32), np.float64(1.5))
 
 
-def test_operators_match_estimate_and_share_cache(monkeypatch) -> None:
-    calls = []
-    real = density_module.estimate_density
+def test_default_points_and_bounds() -> None:
+    assert density_module.DENSITY_POINTS_DEFAULT == 100
+    assert (density_module.DENSITY_POINTS_MIN, density_module.DENSITY_POINTS_MAX) == (
+        20,
+        500,
+    )
+    assert len(estimate_density(_unimodal())["points"]) == 100
 
-    def counting(*args, **kwargs):
-        calls.append(1)
-        return real(*args, **kwargs)
 
-    monkeypatch.setattr(density_module, "estimate_density", counting)
+def test_only_density_operator_is_returned() -> None:
     ops = make_density_operators(32, 1.0)
-    assert set(ops) == {"density", "density_count", "density_status"}
+    assert set(ops) == {"density"}
     series = pd.Series(_unimodal())
-    expected = real(series, 32, 1.0)
-    assert ops["density"](series) == expected["points"]
-    assert ops["density_count"](series) == expected["count"]
-    assert ops["density_status"](series) == expected["status"]
-    assert len(calls) == 1
+    assert ops["density"](series) == estimate_density(series, 32, 1.0)["points"]
 
 
-def test_operators_work_with_groupby_agg() -> None:
+def test_operator_works_with_groupby_agg() -> None:
     df = pd.DataFrame(
         {
             "g": ["a"] * 30 + ["b"] * 30 + ["c"] * 5,
             "v": list(_unimodal()[:30]) + [7.0] * 30 + [np.nan] * 5,
         }
     )
-    ops = make_density_operators(16, 1.0)
+    ops = make_density_operators(20, 1.0)
     funcs = {f"v__{name}": ("v", fn) for name, fn in ops.items()}
     out = df.groupby("g").agg(**funcs).reset_index()
-    assert list(out["v__density_status"]) == ["ok", "constant", "empty"]
-    assert list(out["v__density_count"]) == [30, 30, 0]
-    assert len(out.loc[0, "v__density"]) == 16
+    assert list(out.columns) == ["g", "v__density"]
+    assert len(out.loc[0, "v__density"]) == 20
+    assert out.loc[1, "v__density"] == [[7.0, 1.0]]
     assert out.loc[2, "v__density"] == []
-
-
-def test_cache_is_bounded(monkeypatch) -> None:
-    monkeypatch.setattr(density_module, "CACHE_SIZE", 3)
-    ops = make_density_operators(16, 1.0)
-    for i in range(10):
-        ops["density_status"](pd.Series([float(i), i + 1.0, i + 3.0]))
-    # No direct access to the closure cache, so only check it still works.
-    assert ops["density_count"](pd.Series([1.0, 2.0, 3.0])) == 3

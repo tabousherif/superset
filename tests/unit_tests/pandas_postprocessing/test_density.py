@@ -14,7 +14,6 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-import json
 import logging
 
 import numpy as np
@@ -22,6 +21,7 @@ import pandas as pd
 import pytest
 
 from superset.exceptions import InvalidPostProcessingError
+from superset.utils import json
 from superset.utils.pandas_postprocessing import density as density_module
 from superset.utils.pandas_postprocessing.density import (
     _bandwidth,
@@ -74,7 +74,7 @@ def test_density_shape(make) -> None:
     assert xs[-1] == pytest.approx(x.max())
     assert all(np.isfinite(p[1]) and p[1] >= 0 for p in pts)
     assert _area(pts) == pytest.approx(1.0, abs=1e-9)
-    json.dumps(result, allow_nan=False)
+    json.dumps(result, allow_nan=False, ignore_nan=False)
 
 
 @pytest.mark.parametrize("make", [_unimodal, _bimodal, _skewed])
@@ -120,7 +120,7 @@ def test_nan_and_infinity_are_ignored_in_count() -> None:
     result = estimate_density(x)
     assert result["count"] == 4
     assert result["status"] == "ok"
-    json.dumps(result, allow_nan=False)
+    json.dumps(result, allow_nan=False, ignore_nan=False)
 
 
 def test_single_value_is_constant() -> None:
@@ -155,7 +155,7 @@ def test_tiny_magnitude_data_is_not_constant(scale) -> None:
     result = estimate_density(_unimodal() * scale)
     assert result["status"] == "ok"
     assert len(result["points"]) == 100
-    json.dumps(result, allow_nan=False)
+    json.dumps(result, allow_nan=False, ignore_nan=False)
 
 
 def test_overflowing_range_falls_back_with_log(caplog) -> None:
@@ -170,7 +170,7 @@ def test_subnormal_spread_does_not_crash() -> None:
     x = np.array([0.0, 5e-324, 1e-323, 5e-324])
     result = estimate_density(x)
     assert result["status"] in {"ok", "constant"}
-    json.dumps(result, allow_nan=False)
+    json.dumps(result, allow_nan=False, ignore_nan=False)
 
 
 def test_zero_iqr_with_outliers_is_not_a_spike() -> None:
@@ -187,7 +187,7 @@ def test_very_small_and_large_scales(scale) -> None:
     result = estimate_density(x)
     assert result["status"] == "ok"
     assert all(np.isfinite(p[1]) for p in result["points"])
-    json.dumps(result, allow_nan=False)
+    json.dumps(result, allow_nan=False, ignore_nan=False)
 
 
 def test_unusable_normalization_falls_back_with_log(monkeypatch, caplog) -> None:

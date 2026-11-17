@@ -117,6 +117,21 @@ def _constant_result(value: float, count: int) -> dict[str, Any]:
     return _result([[float(value), 1.0]], count, STATUS_CONSTANT)
 
 
+def _safe_median(x: np.ndarray) -> float:
+    """
+    Median that cannot overflow.
+
+    ``np.median`` averages the two middle values of an even-sized array, which
+    overflows to infinity for values near the float limit. Halving each value
+    first keeps the result finite and between the two middle values.
+    """
+    ordered = np.sort(x)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return float(ordered[mid])
+    return float(ordered[mid - 1] * 0.5 + ordered[mid] * 0.5)
+
+
 def _bandwidth(x: np.ndarray, multiplier: float) -> float:
     """
     Silverman-style bandwidth using a robust scale, scaled by ``multiplier``.
@@ -154,9 +169,12 @@ def estimate_density(
     group/metric is processed per call, and nothing of size N x M is allocated.
 
     The curve is cut at the observed min and max and normalized so that its
-    trapezoid area is 1. If the range overflows, the bandwidth underflows or the
-    normalization is unusable, a warning is logged and a constant marker is
-    returned instead of raising.
+    trapezoid area is 1. The computation runs on values rescaled to [0, 1], so
+    very large, very small or very narrow data does not overflow bin edges or
+    bin widths. If the range overflows, the heights overflow (a range narrower
+    than about 1e-300 needs heights above the float limit) or the normalization
+    is unusable, a warning is logged and a finite constant marker is returned
+    instead of raising.
 
     :param values: observations of a single group/metric
     :param points: number of grid points (20-500)
@@ -185,31 +203,27 @@ def estimate_density(
             x_max,
             n,
         )
-        return _constant_result(float(np.median(x)), n)
+        return _constant_result(_safe_median(x), n)
     if spread <= RELATIVE_EPSILON * max(abs(x_min), abs(x_max)):
         return _constant_result(x_min, n)
 
-    h = _bandwidth(x, multiplier)
-    if not h > 0:
-        logger.warning(
-            "Density bandwidth underflows (spread=%s, n=%s); "
-            "falling back to a constant marker",
-            spread,
-            n,
-        )
-        return _constant_result(float(np.median(x)), n)
-    counts, edges = np.histogram(x, bins=NUM_BINS, range=(x_min, x_max))
+    # Work on values rescaled to [0, 1]. Bin edges, bin centers and the
+    # bandwidth then never overflow or underflow, whatever the magnitude or
+    # spread of the data. Only the final grid and heights are mapped back.
+    u = np.clip((x - x_min) / spread, 0.0, 1.0)
+    h = _bandwidth(u, multiplier)
+    counts, edges = np.histogram(u, bins=NUM_BINS, range=(0.0, 1.0))
     centers = (edges[:-1] + edges[1:]) / 2.0
-    grid = np.linspace(x_min, x_max, points)
+    grid_u = np.linspace(0.0, 1.0, points)
 
     # (M, B) matrix: bounded by points * NUM_BINS, independent of N.
-    z = (grid[:, None] - centers[None, :]) / h
-    density = (np.exp(-0.5 * z * z) * counts[None, :]).sum(axis=1) / (
+    z = (grid_u[:, None] - centers[None, :]) / h
+    density_u = (np.exp(-0.5 * z * z) * counts[None, :]).sum(axis=1) / (
         n * h * np.sqrt(2.0 * np.pi)
     )
 
-    area = _trapezoid_area(grid, density)
-    if not np.all(np.isfinite(density)) or not np.isfinite(area) or area <= 0:
+    area = _trapezoid_area(grid_u, density_u)
+    if not np.all(np.isfinite(density_u)) or not np.isfinite(area) or area <= 0:
         logger.warning(
             "Density normalization unusable (area=%s, n=%s, h=%s); "
             "falling back to a constant marker",
@@ -217,9 +231,23 @@ def estimate_density(
             n,
             h,
         )
-        return _constant_result(float(np.median(x)), n)
+        return _constant_result(_safe_median(x), n)
 
-    density = density / area
+    # Heights in the original units: area 1 over [x_min, x_max] means dividing by
+    # the spread. For a very narrow range this exceeds the float range.
+    with np.errstate(over="ignore", under="ignore", divide="ignore"):
+        density = density_u / area / spread
+    if not np.all(np.isfinite(density)):
+        logger.warning(
+            "Density heights overflow (spread=%s, n=%s); "
+            "falling back to a constant marker",
+            spread,
+            n,
+        )
+        return _constant_result(_safe_median(x), n)
+
+    grid = np.clip(x_min + grid_u * spread, x_min, x_max)
+    grid[0], grid[-1] = x_min, x_max
     return _result(
         [[float(a), float(b)] for a, b in zip(grid, density, strict=True)],
         n,

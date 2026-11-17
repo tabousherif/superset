@@ -166,6 +166,88 @@ def test_overflowing_range_falls_back_with_log(caplog) -> None:
     assert "overflows" in caplog.text
 
 
+def _assert_finite_and_json_safe(result: dict) -> None:
+    flat = [v for pair in result["points"] for v in pair]
+    assert np.all(np.isfinite(flat))
+    json.dumps(result, allow_nan=False, ignore_nan=False)
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        [1e308, 1.5e308],
+        [-1.5e308, -1e308],
+        [1.7e308, 1.79e308],
+        [1e308, 1.2e308, 1.5e308, 1.1e308],
+        [-1e308, 1e307],
+    ],
+)
+def test_values_near_float_limit_stay_finite(values) -> None:
+    result = estimate_density(values)
+    assert result["status"] == "ok"
+    assert result["count"] == len(values)
+    _assert_finite_and_json_safe(result)
+    xs = [p[0] for p in result["points"]]
+    assert xs == sorted(xs)
+    assert xs[0] == min(values)
+    assert xs[-1] == max(values)
+    assert all(p[1] >= 0 for p in result["points"])
+
+
+def test_values_near_float_limit_keep_area_one() -> None:
+    pts = estimate_density([1e308, 1.5e308])["points"]
+    assert _area(pts) == pytest.approx(1.0, rel=1e-6)
+
+
+@pytest.mark.parametrize("scale", [1e300, 1e305, 1e307])
+def test_large_magnitude_data_stays_finite(scale) -> None:
+    result = estimate_density(_unimodal() * scale)
+    assert result["status"] == "ok"
+    _assert_finite_and_json_safe(result)
+
+
+def test_overflowing_range_marker_is_finite() -> None:
+    # Even-sized: a plain np.median would overflow to inf here.
+    result = estimate_density([-1.7e308, 1.7e308, 1.7e308, 1.7e308])
+    assert result["status"] == "constant"
+    _assert_finite_and_json_safe(result)
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        [0.0, 1e-320],
+        [0, 0, 0, 1e-320],
+        [0.0, 5e-324],
+        [0.0, 5e-324, 1e-323, 5e-324, 0.0],
+        [-1e-320, 1e-320],
+        [1e-310, 2e-310, 3e-310],
+    ],
+)
+def test_denormal_range_does_not_raise(values) -> None:
+    result = estimate_density(values)
+    assert result["status"] in {"ok", "constant"}
+    assert result["count"] == len(values)
+    _assert_finite_and_json_safe(result)
+    lo, hi = min(values), max(values)
+    assert all(lo <= p[0] <= hi for p in result["points"])
+
+
+@pytest.mark.parametrize(
+    "values,expected",
+    [
+        ([3.0], 3.0),
+        ([1.0, 5.0, 2.0], 2.0),
+        ([1.0, 2.0, 3.0, 4.0], 2.5),
+        ([-1.7e308, 1.7e308], 0.0),
+        ([1.7e308, 1.7e308], 1.7e308),
+        ([0.0, 1e-320], 5e-321),
+    ],
+)
+def test_safe_median(values, expected) -> None:
+    assert density_module._safe_median(np.array(values)) == pytest.approx(expected)
+
+
 def test_subnormal_spread_does_not_crash() -> None:
     x = np.array([0.0, 5e-324, 1e-323, 5e-324])
     result = estimate_density(x)

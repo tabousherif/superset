@@ -24,10 +24,8 @@ so it is not available as a public post-processing operation.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import numbers
-from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -40,11 +38,10 @@ from superset.exceptions import InvalidPostProcessingError
 
 logger = logging.getLogger(__name__)
 
-DENSITY_POINTS_DEFAULT = 64
-DENSITY_POINTS_MIN = 16
-DENSITY_POINTS_MAX = 256
+DENSITY_POINTS_DEFAULT = 100
+DENSITY_POINTS_MIN = 20
+DENSITY_POINTS_MAX = 500
 DENSITY_BANDWIDTH_DEFAULT = 1.0
-# Provisional bounds, to be confirmed with the maintainers.
 DENSITY_BANDWIDTH_MIN = 0.1
 DENSITY_BANDWIDTH_MAX = 5.0
 
@@ -55,9 +52,7 @@ STATUS_CONSTANT = "constant"
 NUM_BINS = 512
 # A group whose spread is below this fraction of its magnitude is "constant".
 RELATIVE_EPSILON = 1e-12
-# Max number of per-group results kept by one set of operators.
-CACHE_SIZE = 1024
-# 2 * sqrt(2 * ln 2) / 1.34: converts IQR to a std-like scale (normal data)
+# The IQR of a normal distribution is about 1.34 standard deviations.
 IQR_TO_STD = 1.34
 SILVERMAN_FACTOR = 0.9
 
@@ -66,7 +61,7 @@ def validate_density_settings(points: Any, bandwidth: Any) -> None:
     """
     Validate the density settings.
 
-    :param points: number of grid points, an integer in [16, 256]
+    :param points: number of grid points, an integer in [20, 500]
     :param bandwidth: positive finite multiplier in [0.1, 5]
     :raises InvalidPostProcessingError: If either setting is invalid
     """
@@ -122,6 +117,21 @@ def _constant_result(value: float, count: int) -> dict[str, Any]:
     return _result([[float(value), 1.0]], count, STATUS_CONSTANT)
 
 
+def _safe_median(x: np.ndarray) -> float:
+    """
+    Median that cannot overflow.
+
+    ``np.median`` averages the two middle values of an even-sized array, which
+    overflows to infinity for values near the float limit. Halving each value
+    first keeps the result finite and between the two middle values.
+    """
+    ordered = np.sort(x)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return float(ordered[mid])
+    return float(ordered[mid - 1] * 0.5 + ordered[mid] * 0.5)
+
+
 def _bandwidth(x: np.ndarray, multiplier: float) -> float:
     """
     Silverman-style bandwidth using a robust scale, scaled by ``multiplier``.
@@ -159,10 +169,15 @@ def estimate_density(
     group/metric is processed per call, and nothing of size N x M is allocated.
 
     The curve is cut at the observed min and max and normalized so that its
-    trapezoid area is 1.
+    trapezoid area is 1. The computation runs on values rescaled to [0, 1], so
+    very large, very small or very narrow data does not overflow bin edges or
+    bin widths. If the range overflows, the heights overflow (a range narrower
+    than about 1e-300 needs heights above the float limit) or the normalization
+    is unusable, a warning is logged and a finite constant marker is returned
+    instead of raising.
 
     :param values: observations of a single group/metric
-    :param points: number of grid points (16-256)
+    :param points: number of grid points (20-500)
     :param bandwidth: multiplier on the automatic bandwidth (0.1-5)
     :return: ``{"points": [[x, density], ...], "count": int, "status": str}``
         where status is ``ok``, ``empty`` or ``constant`` and count is the
@@ -180,22 +195,35 @@ def estimate_density(
 
     x_min, x_max = float(x.min()), float(x.max())
     spread = x_max - x_min
-    if spread <= RELATIVE_EPSILON * max(abs(x_min), abs(x_max), 1.0):
+    if not np.isfinite(spread):
+        logger.warning(
+            "Density range overflows (min=%s, max=%s, n=%s); "
+            "falling back to a constant marker",
+            x_min,
+            x_max,
+            n,
+        )
+        return _constant_result(_safe_median(x), n)
+    if spread <= RELATIVE_EPSILON * max(abs(x_min), abs(x_max)):
         return _constant_result(x_min, n)
 
-    h = _bandwidth(x, multiplier)
-    counts, edges = np.histogram(x, bins=NUM_BINS, range=(x_min, x_max))
+    # Work on values rescaled to [0, 1]. Bin edges, bin centers and the
+    # bandwidth then never overflow or underflow, whatever the magnitude or
+    # spread of the data. Only the final grid and heights are mapped back.
+    u = np.clip((x - x_min) / spread, 0.0, 1.0)
+    h = _bandwidth(u, multiplier)
+    counts, edges = np.histogram(u, bins=NUM_BINS, range=(0.0, 1.0))
     centers = (edges[:-1] + edges[1:]) / 2.0
-    grid = np.linspace(x_min, x_max, points)
+    grid_u = np.linspace(0.0, 1.0, points)
 
     # (M, B) matrix: bounded by points * NUM_BINS, independent of N.
-    z = (grid[:, None] - centers[None, :]) / h
-    density = (np.exp(-0.5 * z * z) * counts[None, :]).sum(axis=1) / (
+    z = (grid_u[:, None] - centers[None, :]) / h
+    density_u = (np.exp(-0.5 * z * z) * counts[None, :]).sum(axis=1) / (
         n * h * np.sqrt(2.0 * np.pi)
     )
 
-    area = _trapezoid_area(grid, density)
-    if not np.all(np.isfinite(density)) or not np.isfinite(area) or area <= 0:
+    area = _trapezoid_area(grid_u, density_u)
+    if not np.all(np.isfinite(density_u)) or not np.isfinite(area) or area <= 0:
         logger.warning(
             "Density normalization unusable (area=%s, n=%s, h=%s); "
             "falling back to a constant marker",
@@ -203,9 +231,23 @@ def estimate_density(
             n,
             h,
         )
-        return _constant_result(float(np.median(x)), n)
+        return _constant_result(_safe_median(x), n)
 
-    density = density / area
+    # Heights in the original units: area 1 over [x_min, x_max] means dividing by
+    # the spread. For a very narrow range this exceeds the float range.
+    with np.errstate(over="ignore", under="ignore", divide="ignore"):
+        density = density_u / area / spread
+    if not np.all(np.isfinite(density)):
+        logger.warning(
+            "Density heights overflow (spread=%s, n=%s); "
+            "falling back to a constant marker",
+            spread,
+            n,
+        )
+        return _constant_result(_safe_median(x), n)
+
+    grid = np.clip(x_min + grid_u * spread, x_min, x_max)
+    grid[0], grid[-1] = x_min, x_max
     return _result(
         [[float(a), float(b)] for a, b in zip(grid, density, strict=True)],
         n,
@@ -218,48 +260,20 @@ def make_density_operators(
     bandwidth: float = DENSITY_BANDWIDTH_DEFAULT,
 ) -> dict[str, Callable[[pd.Series], Any]]:
     """
-    Build the three per-group operators used by ``boxplot``.
+    Build the ``density`` operator used by ``boxplot``.
 
-    Each operator maps one group's ``Series`` to a single cell value, so they
-    work with ``aggregate()``. The KDE is computed once per distinct group and
-    shared between the operators through a small per-call LRU cache, which is
-    created here and not global.
+    The operator maps one group's ``Series`` to a single cell value (a list of
+    ``[value, density]`` pairs), so it works with ``aggregate()``. The key is
+    the operator name, so the output column is ``<metric>__density``. An empty
+    group yields ``[]`` and a constant group yields ``[[value, 1.0]]``.
 
-    Keys are the operator names, so the output columns are
-    ``<metric>__density``, ``<metric>__density_count`` and
-    ``<metric>__density_status``.
-
-    :param points: number of grid points (16-256)
+    :param points: number of grid points (20-500)
     :param bandwidth: multiplier on the automatic bandwidth (0.1-5)
     :raises InvalidPostProcessingError: If the settings are invalid
     """
     validate_density_settings(points, bandwidth)
-    cache: OrderedDict[bytes, dict[str, Any]] = OrderedDict()
-
-    def compute(series: pd.Series) -> dict[str, Any]:
-        x = _finite_values(series)
-        key = hashlib.blake2b(x.tobytes(), digest_size=16).digest()
-        cached = cache.get(key)
-        if cached is not None:
-            cache.move_to_end(key)
-            return cached
-        result = estimate_density(x, points, bandwidth)
-        cache[key] = result
-        if len(cache) > CACHE_SIZE:
-            cache.popitem(last=False)
-        return result
 
     def density(series: pd.Series) -> list[list[float]]:
-        return compute(series)["points"]
+        return estimate_density(series, points, bandwidth)["points"]
 
-    def density_count(series: pd.Series) -> int:
-        return compute(series)["count"]
-
-    def density_status(series: pd.Series) -> str:
-        return compute(series)["status"]
-
-    return {
-        "density": density,
-        "density_count": density_count,
-        "density_status": density_status,
-    }
+    return {"density": density}

@@ -11,6 +11,12 @@ Two sources are combined here:
 
 Roles: **A** backend math (Mustafa) · **B** backend integration and data format · **C** frontend rendering · **D** controls and community (Tareq)
 
+> **Update 2026-11-17: sections below were written on 2026-11-10 and are partly out of date.**
+> Since then (PR #2 and review feedback):
+> - Conflicts 1 and 2 in section 5 are **resolved in favour of the design doc**: `make_density_operators` returns only `density`; `density_count`, `density_status` and the cache are gone (A1, A2 below are superseded). Points are default 100, range 20-500.
+> - The helper now works on values rescaled to [0, 1], so values near the float limit (e.g. `[1e308, 1.5e308]`) and denormal ranges (e.g. `[0, 1e-320]`) no longer produce `inf` or raise. A range too narrow for the heights to fit in a float (below about 1e-300) falls back to a finite constant marker with a log warning (A4).
+> - The current source of truth for the format is the team decisions doc. This file is kept as background.
+
 ## 1. Status
 
 | Item | State |
@@ -201,3 +207,4 @@ Alternative: histogram on an evenly spaced grid, convolve with a Gaussian kernel
 - 2026-11-05: Design decisions 1-9 adopted (Discord).
 - 2026-11-06: D1-D4 added. `density_points` gets no control in the first PR.
 - 2026-11-10: Role A helper written. Conflicts with the design doc recorded (section 5). Not yet resolved.
+- 2026-11-17: Restored this file on request. Helper rescales to [0, 1] to fix overflow near the float limit and "Too many bins" on denormal ranges.

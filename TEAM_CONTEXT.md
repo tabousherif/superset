@@ -7,9 +7,68 @@ Two sources are combined here:
 - **Team design doc** ("Violin Option: Design Decisions", agreed in Discord on 2026-11-05, final unless Tareq records a change). Summarized in section 2.
 - **Role A's implementation session** (2026-11-08 to 2026-11-10). Sections 3 and 4.
 
-**Section 5 lists where the two disagree. Please read it first. Those items need a team decision.**
+**Section 5 records the original helper discrepancies. Role A's merged PR #2
+aligns them with the agreed design; Part B integrates that updated helper.**
 
-Roles: **A** backend math (Mustafa) · **B** backend integration and data format · **C** frontend rendering · **D** controls and community (Tareq)
+Roles: **A** backend math (Mustafa) · **B** backend integration and data format (Adrit) · **C** frontend rendering · **D** controls and community (Tareq)
+
+## Part B handoff
+
+- Request wiring: only `distribution_style === "violin"` sends `density_points: 100`
+  and a numeric `density_bandwidth` (default 1). Box mode omits both, even when a
+  saved bandwidth exists. `show_inner_box` stays a rendering setting.
+- Backend: `boxplot()` accepts those exact option names, validates them at runtime,
+  and adds only `${metric}__density`. The options schema documents the same ranges.
+- Helper contract from A's PR #2: points default 100, range 20-500; bandwidth range 0.1-5.
+  `make_density_operators()` exposes only `density`. Internal estimator count/status
+  stay private; A removed the unused three-operator cache. Part B preserves A's
+  updated math, including rescaling and finite fallbacks for extreme values.
+- Response for C: `[[value, density], ...]`, empty `[]`, constant `[[v, 1.0]]`.
+  Existing box statistics and counts are unchanged. Curves include outliers.
+- Backend tests run in the real Superset environment, without dependency stubs.
+  Coverage includes multiple metrics/grouping columns, no grouping, empty results,
+  constant/null/nonnumeric observations, option validation, legacy requests, and
+  `QueryObject` option filtering/dispatch.
+- Validation: 254 backend tests and 40 frontend tests pass with A's updated helper.
+  Python pre-commit
+  checks (including mypy, Ruff and Pylint) pass, as do frontend formatting, lint,
+  custom rules and style checks. The targeted frontend type check reports six
+  TS6305 errors from missing package declaration builds; the unchanged branch
+  base reproduces the same errors. Build the referenced workspace declarations
+  before requiring a clean frontend type-check result.
+- API smoke check: `/api/v1/chart/data` returns HTTP 200 on the loaded population
+  example dataset for both modes. Violin returns curves for all seven regions;
+  Box returns no density columns. All box statistics match between modes.
+- Remaining owners: C implements drawing in `transformProps.ts`; D can finish the
+  gallery/Storybook work after drawing is available. A owns the benchmark.
+
+### Part B testing instructions for the final PR
+
+From the repository root in the configured Python development environment:
+
+```bash
+pytest -q tests/unit_tests/pandas_postprocessing/test_boxplot.py \
+  tests/unit_tests/pandas_postprocessing/test_density.py \
+  tests/unit_tests/charts/test_schemas.py \
+  tests/unit_tests/queries/query_object_test.py
+```
+
+From `superset-frontend`:
+
+```bash
+npm run test -- --runInBand \
+  packages/superset-ui-chart-controls/test/operators/boxplotOperator.test.ts \
+  plugins/plugin-chart-echarts/test/BoxPlot
+```
+
+Manual check: select Violin in Explore and update the chart. In browser Network,
+inspect the chart-data request: its boxplot options include 100 points and numeric
+smoothness. The returned rows include a `__density` column per metric. Switch to
+Box and update again: both request options and response density columns disappear.
+The drawing remains a box plot until C's rendering changes land.
+
+Sections below preserve A's original implementation history. Their unresolved
+status notes describe the earlier handoff, not the Part B working tree.
 
 > **Update 2026-11-17: sections below were written on 2026-11-10 and are partly out of date.**
 > Since then (PR #2 and review feedback):

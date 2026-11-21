@@ -39,15 +39,15 @@ export type BoxPlotQueryFormData = QueryFormData & {
 export type BoxPlotDistributionStyle = 'box' | 'violin';
 
 export type Stats = {
-  min: number; 
-  q1: number; 
-  median: number; 
-  q3: number;
-  max: number; 
-  mean: number; 
-  count: number; 
-  outliers: number[];
-}
+  min: number | null;
+  q1: number | null;
+  median: number;
+  q3: number | null;
+  max: number | null;
+  mean: number | null;
+  count: number | null;
+  outliers: number[] | null;
+};
 
 export type ViolinItem = {
   name: string;
@@ -55,8 +55,8 @@ export type ViolinItem = {
   isFiltered: boolean;
   density: DensityCurve;
   peak: number;
-  stats: { min: number; q1: number; median: number; q3: number; max: number; mean: number; count: number; outliers: number[] }
-}
+  stats: Stats;
+};
 
 export type BoxPlotFormDataWhiskerOptions =
   | 'Tukey'
@@ -81,9 +81,9 @@ export const DEFAULT_FORM_DATA: BoxPlotQueryFormData = {
   showInnerBox: true,
 };
 
-export type DensityCurve = [number, number][]
+export type DensityCurve = [number, number][];
 
-export type BoxPlotViolinWidthScale = 'per_group' | 'shared'
+export type BoxPlotViolinWidthScale = 'per_group' | 'shared';
 
 export interface EchartsBoxPlotChartProps extends BaseChartProps<BoxPlotQueryFormData> {
   formData: BoxPlotQueryFormData;

@@ -18,7 +18,10 @@
  */
 import { ChartProps, SqlaFormData } from '@superset-ui/core';
 import { supersetTheme } from '@apache-superset/core/theme';
-import { DensityCurve, EchartsBoxPlotChartProps } from '../../src/BoxPlot/types';
+import {
+  DensityCurve,
+  EchartsBoxPlotChartProps,
+} from '../../src/BoxPlot/types';
 import transformProps from '../../src/BoxPlot/transformProps';
 
 interface QueryData {
@@ -39,71 +42,60 @@ interface QuerySeriesData {
   data: QueryData[];
 }
 
-describe('BoxPlot transformProps', () => {
-  const formData: SqlaFormData = {
-    datasource: '5__table',
-    granularity_sqla: 'ds',
-    time_grain_sqla: 'P1Y',
-    columns: [],
-    metrics: ['AVG(averageprice)'],
-    groupby: ['type', 'region'],
-    whiskerOptions: 'Tukey',
-    yAxisFormat: 'SMART_NUMBER',
-    viz_type: 'my_chart',
-    zoomable: true,
-  };
-  const chartProps = new ChartProps({
-    formData,
-    width: 800,
-    height: 600,
-    queriesData: [
-      {
-        data: [
-          {
-            type: 'organic',
-            region: 'Charlotte',
-            'AVG(averageprice)__mean': 1.9405512820512825,
-            'AVG(averageprice)__median': 1.9025,
-            'AVG(averageprice)__max': 2.505,
-            'AVG(averageprice)__min': 1.4775,
-            'AVG(averageprice)__q1': 1.73875,
-            'AVG(averageprice)__q3': 2.105,
-            'AVG(averageprice)__count': 39,
-            'AVG(averageprice)__outliers': [2.735],
-          },
-          {
-            type: 'organic',
-            region: 'Hartford Springfield',
-            'AVG(averageprice)__mean': 2.231141025641026,
-            'AVG(averageprice)__median': 2.265,
-            'AVG(averageprice)__max': 2.595,
-            'AVG(averageprice)__min': 1.862,
-            'AVG(averageprice)__q1': 2.1285,
-            'AVG(averageprice)__q3': 2.32625,
-            'AVG(averageprice)__count': 39,
-            'AVG(averageprice)__outliers': [],
-          },
-        ],
-      },
-    ] as QuerySeriesData[],
-    theme: supersetTheme,
-  });
+const charlotteDensity: [number, number][] = [
+  [1.4775, 0],
+  [1.7, 0.45],
+  [1.9025, 1],
+  [2.2, 0.55],
+  [2.735, 0.1],
+];
 
-  const charlotteDensity: [number, number][] = [
-    [1.4775, 0],
-    [1.7, 0.45],
-    [1.9025, 1],
-    [2.2, 0.55],
-    [2.735, 0.1],
-  ];
+const hartfordDensity: [number, number][] = [
+  [1.862, 0],
+  [2.1285, 0.4],
+  [2.265, 0.35],
+  [2.595, 0.1],
+];
 
-  const hartfordDensity: [number, number][] = [
-    [1.862, 0],
-    [2.1285, 0.4],
-    [2.265, 0.35],
-    [2.595, 0.1],
-  ];
-  const densityQueryData = [
+const formData: SqlaFormData = {
+  datasource: '5__table',
+  granularity_sqla: 'ds',
+  time_grain_sqla: 'P1Y',
+  columns: [],
+  metrics: ['AVG(averageprice)'],
+  groupby: ['type', 'region'],
+  whiskerOptions: 'Tukey',
+  yAxisFormat: 'SMART_NUMBER',
+  viz_type: 'my_chart',
+  zoomable: true,
+};
+
+const buildChartPropsExt = (
+    formDataOverrides: Partial<SqlaFormData> = {},
+    queriesData?: QuerySeriesData[],
+    filterState?: { selectedValues: string[] },
+  ) =>
+    new ChartProps({
+      formData: { ...formData, ...formDataOverrides },
+      width: 800,
+      height: 600,
+      queriesData: queriesData,
+      filterState,
+      theme: supersetTheme,
+    }) as unknown as EchartsBoxPlotChartProps;
+
+const seriesWithDensity = (chartProps: ChartProps) =>
+  (chartProps.queriesData[0].data as QueryData[]).map((row, i) => ({
+    ...row,
+    'AVG(averageprice)__density':
+      i === 0 ? charlotteDensity : hartfordDensity,
+  }));
+
+const chartProps = new ChartProps({
+  formData,
+  width: 800,
+  height: 600,
+  queriesData: [
     {
       data: [
         {
@@ -117,7 +109,6 @@ describe('BoxPlot transformProps', () => {
           'AVG(averageprice)__q3': 2.105,
           'AVG(averageprice)__count': 39,
           'AVG(averageprice)__outliers': [2.735],
-          'AVG(averageprice)__density': charlotteDensity,
         },
         {
           type: 'organic',
@@ -130,19 +121,14 @@ describe('BoxPlot transformProps', () => {
           'AVG(averageprice)__q3': 2.32625,
           'AVG(averageprice)__count': 39,
           'AVG(averageprice)__outliers': [],
-          'AVG(averageprice)__density': hartfordDensity,
         },
       ],
     },
-  ]
+  ] as QuerySeriesData[],
+  theme: supersetTheme,
+});
 
-
-  const withDensity = () =>
-    (chartProps.queriesData[0].data as QueryData[]).map((row, i) => ({
-      ...row,
-      'AVG(averageprice)__density':
-        i === 0 ? charlotteDensity : hartfordDensity,
-    }));
+describe('BoxPlot transformProps', () => {
 
   const buildChartProps = (formDataOverrides: Partial<SqlaFormData> = {}) =>
     new ChartProps({
@@ -151,23 +137,7 @@ describe('BoxPlot transformProps', () => {
       height: 600,
       queriesData: chartProps.queriesData,
       theme: supersetTheme,
-    }) as EchartsBoxPlotChartProps;
-
-
-  //add a new version of build chart props, where we can dynamically modify the query data to reflect box or violin plots  
-  const buildChartPropsExt = (
-    formDataOverrides: Partial<SqlaFormData> = {},
-    queriesData?: QuerySeriesData[],
-    filterState?: { selectedValues: string[] },
-  ) =>
-    new ChartProps({
-      formData: { ...formData, ...formDataOverrides },
-      width: 800,
-      height: 600,
-      queriesData: queriesData ?? chartProps.queriesData,
-      filterState,
-      theme: supersetTheme,
-    }) as unknown as EchartsBoxPlotChartProps;
+    }) as EchartsBoxPlotChartProps;  
 
   test('should transform chart props for viz', () => {
     expect(transformProps(chartProps as EchartsBoxPlotChartProps)).toEqual(
@@ -261,30 +231,37 @@ describe('BoxPlot transformProps', () => {
     );
   });
 
-  //violin test
   test('box mode ignores __density', () => {
     //create plot props without density metric in query series
-    const withoutDensity = transformProps(buildChartPropsExt({ distributionStyle: 'box' }));
+    const withoutDensity = transformProps(
+      buildChartPropsExt({ distributionStyle: 'box' }, chartProps.queriesData as QuerySeriesData[]),
+    );
     //create props including the density metric in query series
     const withUnusedDensity = transformProps(
       buildChartPropsExt({ distributionStyle: 'box' }, [
-        { data: withDensity() },
+        { data: seriesWithDensity(chartProps) },
       ]),
     );
     const withDensityEchartOptions = withUnusedDensity.echartOptions as any;
     const withoutDensityEchartOptions = withoutDensity.echartOptions as any;
     //assert that the relevant props will be the same, because violinPlot distribution style was not specified
-    expect(withDensityEchartOptions.series.map((s: any) => s.data)).toEqual(withoutDensityEchartOptions.series.map((s: any) => s.data));
-    expect(withDensityEchartOptions.series.map((s: any) => s.type)).toEqual(withoutDensityEchartOptions.series.map((s: any) => s.type));
-    expect(withDensityEchartOptions.xAxis.data).toEqual(withoutDensityEchartOptions.xAxis.data);
+    expect(withDensityEchartOptions.series.map((s: any) => s.data)).toEqual(
+      withoutDensityEchartOptions.series.map((s: any) => s.data),
+    );
+    expect(withDensityEchartOptions.series.map((s: any) => s.type)).toEqual(
+      withoutDensityEchartOptions.series.map((s: any) => s.type),
+    );
+    expect(withDensityEchartOptions.xAxis.data).toEqual(
+      withoutDensityEchartOptions.xAxis.data,
+    );
     expect(withUnusedDensity.labelMap).toEqual(withoutDensity.labelMap);
   });
 
   test('missing distribution style defaults to box', () => {
     //create plot props with density metric in the query series, without specifying the distribution style
-    const plotProps = transformProps(buildChartPropsExt([
-      { data: withDensity() }
-    ]));
+    const plotProps = transformProps(
+      buildChartPropsExt({}, [{ data: seriesWithDensity(chartProps) }]),
+    );
     //get the series
     const series = (plotProps.echartOptions as any).series;
     //assert that the series name and type is 'boxplot'
@@ -292,11 +269,29 @@ describe('BoxPlot transformProps', () => {
     expect(series[0].type).toBe('boxplot');
   });
 
+  
+});
+
+
+describe('ViolinPlot transformProps', () => {
+
+  const mockApi = {
+    value: jest.fn(() => ('organic, Charlotte')), //mock category name
+    size: jest.fn(() => [10, 10]),
+    coord: jest.fn((vals: [string, number]) => {
+      const [, y] = vals;
+      //mock that it returns 100 as cx, and multiple y by 10 to ensure in the test we get y*10
+      return [100, y * 10];
+    }),
+  } as any;
+
   test('should return a violin plot when distribution style is specified as violin', () => {
     //create plot props with density metric in the query series and specifying the distribution style as violin
-    const plotProps = transformProps(buildChartPropsExt({ distributionStyle: 'violin' }, [
-      { data: withDensity() }
-    ]));
+    const plotProps = transformProps(
+      buildChartPropsExt({ distributionStyle: 'violin' }, [
+        { data: seriesWithDensity(chartProps) },
+      ]),
+    );
     //get the series
     const series = (plotProps.echartOptions as any).series;
     //assert that the series name is 'violin plot'
@@ -304,4 +299,80 @@ describe('BoxPlot transformProps', () => {
     //assert that the series type is 'custom'
     expect(series[0].type).toBe('custom');
   });
+
+  test('violin mode shows inner box only when showInnerBox is true', () => {
+    const distributionStyle = { distributionStyle: 'violin' } as const;
+    const withInnerBox = transformProps(
+      buildChartPropsExt({ ...distributionStyle, showInnerBox: true }, [
+        { data: seriesWithDensity(chartProps) },
+      ]),
+    );
+    const typesWithInnerBox = (withInnerBox.echartOptions as any).series.map(
+      (s: any) => s.type,
+    );
+    expect(typesWithInnerBox).toContain('boxplot');
+
+    const withoutInnerBox = transformProps(
+      buildChartPropsExt({ ...distributionStyle, showInnerBox: false }, [
+        { data: seriesWithDensity(chartProps) },
+      ]),
+    );
+    const typesWithoutInnerBox = (
+      withoutInnerBox.echartOptions as any
+    ).series.map((s: any) => s.type);
+    expect(typesWithoutInnerBox).not.toContain('boxplot');
+  });
+
+  test('violin with empty density curve renders nothing', () => {
+    const plotProps = transformProps(
+      buildChartPropsExt({ distributionStyle: 'violin' }, [
+        {
+          data: seriesWithDensity(chartProps).map((row, i) =>
+            i === 0 ? { ...row, 'AVG(averageprice)__density': [] } : row,
+          ),
+        },
+      ]),
+    );
+    const renderItem = (plotProps.echartOptions as any).series[0].renderItem;
+    expect(renderItem({ dataIndex: 0 }, mockApi)).toBeNull();
+    expect(renderItem({ dataIndex: 1 }, mockApi)).not.toBeNull()
+  });
+
+  test('test single-point density renders a circle', () => {
+    const plotProps = transformProps(
+      buildChartPropsExt({ distributionStyle: 'violin' }, [
+        {
+          data: seriesWithDensity(chartProps).map((row, i) =>
+            i === 0
+              ? { ...row, 'AVG(averageprice)__density': [[1.4775, 0.2]] }
+              : row,
+          ),
+        },
+      ]),
+    );
+
+    const renderItem = (plotProps.echartOptions as any).series[0].renderItem;
+    expect(renderItem({ dataIndex: 0 }, mockApi)).toEqual(
+      expect.objectContaining({
+        type: 'circle',
+        shape: expect.objectContaining({
+          cx: 100,
+          cy: 14.775,
+          r: 4,
+        }),
+      }),
+    );
+  });
+
+  test('violin series enables clipping for y-axis zoom', () => {
+    const plotProps = transformProps(
+      buildChartPropsExt({ distributionStyle: 'violin', yAxisSlider: true, zoomable: true },
+        [{ data: seriesWithDensity(chartProps) }]),
+    );
+    const clipSettings = (
+      plotProps.echartOptions as any
+    ).series.map((s: any) => s.clip);
+    expect(clipSettings).toContain(true);
+  });
+
 })

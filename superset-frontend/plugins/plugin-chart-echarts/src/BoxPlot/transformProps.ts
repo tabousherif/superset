@@ -42,7 +42,7 @@ import {
 import type {
   CustomSeriesRenderItem,
   CustomSeriesRenderItemParams,
-  CustomSeriesRenderItemAPI
+  CustomSeriesRenderItemAPI,
 } from 'echarts';
 import { convertInteger } from '../utils/convertInteger';
 import { defaultGrid, defaultYAxis } from '../defaults';
@@ -52,18 +52,20 @@ import { getDefaultTooltip } from '../utils/tooltip';
 import { Refs } from '../types';
 
 //custom rendering for a violin plot based on a violin item
-const renderViolin = (
-  violinItems: ViolinItem[],
-  peakForViolinItem: (violinItem: ViolinItem) => number,
-  ): CustomSeriesRenderItem => (params: CustomSeriesRenderItemParams, api: CustomSeriesRenderItemAPI) => {
+const renderViolin =
+  (
+    violinItems: ViolinItem[],
+    peakForViolinItem: (violinItem: ViolinItem) => number,
+  ): CustomSeriesRenderItem =>
+  (params: CustomSeriesRenderItemParams, api: CustomSeriesRenderItemAPI) => {
     const item = violinItems[params.dataIndex];
     //check whether the item is valid. if not draw nothing
     if (!item || item.density.length === 0) {
       return null;
     }
     const category = api.value(0);
-    const bandwidth = ((api.size?.([1, 0]) as number[] | undefined)?.[0] ?? 0);
-    
+    const bandwidth = (api.size?.([1, 0]) as number[] | undefined)?.[0] ?? 0;
+
     const [cx] = api.coord([category, item.stats.median]);
 
     const style = {
@@ -109,7 +111,7 @@ const renderViolin = (
       },
       style,
     };
-};
+  };
 
 export default function transformProps(
   chartProps: EchartsBoxPlotChartProps,
@@ -299,18 +301,11 @@ export default function transformProps(
   const violinSeries = {
     name: 'violin',
     type: 'custom',
-    renderItem: renderViolin(
-      violinItems,
-      peakForViolinItem
-    ),
+    renderItem: renderViolin(violinItems, peakForViolinItem),
     clip: true,
     data: violinItems.map(violin => ({
       name: violin.name,
-      value: [
-        violin.name,
-        violin.density[0]?.[0],
-        violin.density.at(-1)?.[0],
-      ],
+      value: [violin.name, violin.density[0]?.[0], violin.density.at(-1)?.[0]],
     })),
     encode: { x: 0, y: [1, 2] },
     tooltip: {

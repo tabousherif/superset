@@ -71,24 +71,23 @@ const formData: SqlaFormData = {
 };
 
 const buildChartPropsExt = (
-    formDataOverrides: Partial<SqlaFormData> = {},
-    queriesData?: QuerySeriesData[],
-    filterState?: { selectedValues: string[] },
-  ) =>
-    new ChartProps({
-      formData: { ...formData, ...formDataOverrides },
-      width: 800,
-      height: 600,
-      queriesData,
-      filterState,
-      theme: supersetTheme,
-    }) as unknown as EchartsBoxPlotChartProps;
+  formDataOverrides: Partial<SqlaFormData> = {},
+  queriesData?: QuerySeriesData[],
+  filterState?: { selectedValues: string[] },
+) =>
+  new ChartProps({
+    formData: { ...formData, ...formDataOverrides },
+    width: 800,
+    height: 600,
+    queriesData,
+    filterState,
+    theme: supersetTheme,
+  }) as unknown as EchartsBoxPlotChartProps;
 
 const seriesWithDensity = (chartProps: ChartProps) =>
   (chartProps.queriesData[0].data as QueryData[]).map((row, i) => ({
     ...row,
-    'AVG(averageprice)__density':
-      i === 0 ? charlotteDensity : hartfordDensity,
+    'AVG(averageprice)__density': i === 0 ? charlotteDensity : hartfordDensity,
   }));
 
 const chartProps = new ChartProps({
@@ -129,7 +128,6 @@ const chartProps = new ChartProps({
 });
 
 describe('BoxPlot transformProps', () => {
-
   const buildChartProps = (formDataOverrides: Partial<SqlaFormData> = {}) =>
     new ChartProps({
       formData: { ...formData, ...formDataOverrides },
@@ -137,7 +135,7 @@ describe('BoxPlot transformProps', () => {
       height: 600,
       queriesData: chartProps.queriesData,
       theme: supersetTheme,
-    }) as EchartsBoxPlotChartProps;  
+    }) as EchartsBoxPlotChartProps;
 
   test('should transform chart props for viz', () => {
     expect(transformProps(chartProps as EchartsBoxPlotChartProps)).toEqual(
@@ -233,7 +231,10 @@ describe('BoxPlot transformProps', () => {
 
   test('box mode ignores __density', () => {
     const withoutDensity = transformProps(
-      buildChartPropsExt({ distributionStyle: 'box' }, chartProps.queriesData as QuerySeriesData[]),
+      buildChartPropsExt(
+        { distributionStyle: 'box' },
+        chartProps.queriesData as QuerySeriesData[],
+      ),
     );
     const withUnusedDensity = transformProps(
       buildChartPropsExt({ distributionStyle: 'box' }, [
@@ -259,21 +260,17 @@ describe('BoxPlot transformProps', () => {
     const plotProps = transformProps(
       buildChartPropsExt({}, [{ data: seriesWithDensity(chartProps) }]),
     );
-    
+
     const { series } = plotProps.echartOptions as any;
-    
+
     expect(series[0].name).toBe('boxplot');
     expect(series[0].type).toBe('boxplot');
   });
-
-  
 });
 
-
 describe('ViolinPlot transformProps', () => {
-
   const mockApi = {
-    value: jest.fn(() => ('organic, Charlotte')), //mock category name
+    value: jest.fn(() => 'organic, Charlotte'), //mock category name
     size: jest.fn(() => [10, 10]),
     coord: jest.fn((vals: [string, number]) => {
       const [, y] = vals;
@@ -289,7 +286,7 @@ describe('ViolinPlot transformProps', () => {
         { data: seriesWithDensity(chartProps) },
       ]),
     );
-    
+
     const { series } = plotProps.echartOptions as any;
     expect(series[0].name).toBe('violin');
     expect(series[0].type).toBe('custom');
@@ -329,11 +326,11 @@ describe('ViolinPlot transformProps', () => {
       ]),
     );
     const { series } = plotProps.echartOptions as any;
-    const [seriesFirstIndex] = series
+    const [seriesFirstIndex] = series;
     const { renderItem } = seriesFirstIndex;
 
     expect(renderItem({ dataIndex: 0 }, mockApi)).toBeNull();
-    expect(renderItem({ dataIndex: 1 }, mockApi)).not.toBeNull()
+    expect(renderItem({ dataIndex: 1 }, mockApi)).not.toBeNull();
   });
 
   test('single-point density renders a circle', () => {
@@ -350,7 +347,7 @@ describe('ViolinPlot transformProps', () => {
     );
 
     const { series } = plotProps.echartOptions as any;
-    const [seriesFirstIndex] = series
+    const [seriesFirstIndex] = series;
     const { renderItem } = seriesFirstIndex;
     expect(renderItem({ dataIndex: 0 }, mockApi)).toEqual(
       expect.objectContaining({
@@ -366,51 +363,50 @@ describe('ViolinPlot transformProps', () => {
 
   test('violin series enables clipping for y-axis zoom', () => {
     const plotProps = transformProps(
-      buildChartPropsExt({ distributionStyle: 'violin', yAxisSlider: true, zoomable: true },
-        [{ data: seriesWithDensity(chartProps) }]),
+      buildChartPropsExt(
+        { distributionStyle: 'violin', yAxisSlider: true, zoomable: true },
+        [{ data: seriesWithDensity(chartProps) }],
+      ),
     );
-    const clipSettings = (
-      plotProps.echartOptions as any
-    ).series.map((s: any) => s.clip);
+    const clipSettings = (plotProps.echartOptions as any).series.map(
+      (s: any) => s.clip,
+    );
     expect(clipSettings).toContain(true);
   });
 
   test('violin width stays bounded for different density magnitudes', () => {
-    const scales = [0.5,1,1.5,2,3,4,5]
+    const scales = [0.5, 1, 1.5, 2, 3, 4, 5];
 
     scales.forEach(scale => {
-
       const plotProps = transformProps(
         buildChartPropsExt({ distributionStyle: 'violin' }, [
-          { 
+          {
             data: seriesWithDensity(chartProps).map(row => ({
               ...row,
               'AVG(averageprice)__density': charlotteDensity.map(
-                ([value, density]) => [value, density * scale] as [number, number],
-              )
-            }))
-          }
-        ])
-      )
-      
+                ([value, density]) =>
+                  [value, density * scale] as [number, number],
+              ),
+            })),
+          },
+        ]),
+      );
+
       const { series } = plotProps.echartOptions as any;
-      const [seriesFirstIndex] = series
+      const [seriesFirstIndex] = series;
       const { renderItem } = seriesFirstIndex;
       const result = renderItem({ dataIndex: 0 }, mockApi);
 
-      expect(result.type).toBe('polygon')
+      expect(result.type).toBe('polygon');
 
-      const [bandwidth] = mockApi.size()
-      const maxWidthOfTheBand = 0.4
-      const widthLimit = maxWidthOfTheBand * bandwidth
-      const cx = 100
+      const [bandwidth] = mockApi.size();
+      const maxWidthOfTheBand = 0.4;
+      const widthLimit = maxWidthOfTheBand * bandwidth;
+      const cx = 100;
 
-    
       const xValues = result.shape.points.map(([x]: number[]) => x);
-      expect(Math.min(...xValues)).toBeGreaterThanOrEqual(cx-widthLimit);
-      expect(Math.max(...xValues)).toBeLessThanOrEqual(cx+widthLimit);
-
-    })
-  })
-
-})
+      expect(Math.min(...xValues)).toBeGreaterThanOrEqual(cx - widthLimit);
+      expect(Math.max(...xValues)).toBeLessThanOrEqual(cx + widthLimit);
+    });
+  });
+});

@@ -55,17 +55,15 @@ import { Refs } from '../types';
 const renderViolin = (
   violinItems: ViolinItem[],
   peakForViolinItem: (violinItem: ViolinItem) => number,
-  densityBandwidth: number,
-): CustomSeriesRenderItem => {
-  return (params: CustomSeriesRenderItemParams, api: CustomSeriesRenderItemAPI) => {
+  ): CustomSeriesRenderItem => (params: CustomSeriesRenderItemParams, api: CustomSeriesRenderItemAPI) => {
     const item = violinItems[params.dataIndex];
     //check whether the item is valid. if not draw nothing
     if (!item || item.density.length === 0) {
       return null;
     }
     const category = api.value(0);
-    const bandwidth = ((api.size?.([1, 0]) as number[] | undefined)?.[0] ?? 0) * densityBandwidth;
-    //horizontal centre, also q2
+    const bandwidth = ((api.size?.([1, 0]) as number[] | undefined)?.[0] ?? 0);
+    
     const [cx] = api.coord([category, item.stats.median]);
 
     const style = {
@@ -76,12 +74,11 @@ const renderViolin = (
 
     //check whether there is only one density data point
     if (item.density.length === 1) {
-      //if it is we can draw a circle
       const [_, y] = api.coord([category, item.density[0][0]]);
       return {
         type: 'circle',
         shape: {
-          cx: cx,
+          cx,
           cy: y,
           r: 4,
         },
@@ -94,7 +91,6 @@ const renderViolin = (
     const maxWidthOfTheBand = 0.4; //limit each x value offset to 40% of the bandwidth
     //create the outline of the density
     const rightOutline = item.density.map(([value, density]) => {
-      //the vertical position
       const [, y] = api.coord([category, value]);
 
       return [cx + (density / peak) * maxWidthOfTheBand * bandwidth, y];
@@ -113,7 +109,6 @@ const renderViolin = (
       },
       style,
     };
-  };
 };
 
 export default function transformProps(
@@ -129,7 +124,7 @@ export default function transformProps(
     inContextMenu,
     emitCrossFilters,
   } = chartProps;
-  const { data = [] } = queriesData[0];
+  const [{ data = [] }] = queriesData;
   const { setDataMask = () => {}, onContextMenu } = hooks;
   const coltypeMapping = getColtypesMapping(queriesData[0]);
   const {
@@ -149,7 +144,6 @@ export default function transformProps(
     zoomable,
     yAxisSlider,
     distributionStyle,
-    densityBandwidth = DEFAULT_FORM_DATA.densityBandwidth,
     showInnerBox = DEFAULT_FORM_DATA.showInnerBox,
   } = formData as BoxPlotQueryFormData;
   const refs: Refs = {};
@@ -172,7 +166,6 @@ export default function transformProps(
       `Min: ${numberFormatter(stats.min)}`,
       `# Observations: ${numberFormatter(stats.count)}`,
     ];
-    // console.log('stats array: ', statsArray);
     if (stats.outliers && stats.outliers.length > 0) {
       statsArray.push(`# Outliers: ${stats.outliers.length}`);
     }
@@ -201,8 +194,8 @@ export default function transformProps(
         return {
           name,
           color: colorFn(groupbyLabel, sliceId),
-          isFiltered: isFiltered,
-          density: density,
+          isFiltered,
+          density,
           stats: {
             min: datum[`${metric}__min`],
             q1: datum[`${metric}__q1`],
@@ -262,12 +255,8 @@ export default function transformProps(
     },
   }));
 
-  // determine the peak for a given Violin
-  const peakForViolinItem = (violinItem: ViolinItem) => {
-    return violinItem.peak;
-  };
+  const peakForViolinItem = (violinItem: ViolinItem) => violinItem.peak;
 
-  // }
   const violinTooltip = (params: CallbackDataParams) => {
     const item = violinItems[params.dataIndex];
     if (!item) return '';
@@ -307,22 +296,20 @@ export default function transformProps(
   else if (xTicksLayout === 'staggered') axisLabel = { rotate: -45 };
   else axisLabel = { show: true };
 
-  const castDensityBandwidth = Number(densityBandwidth) || 1;
   const violinSeries = {
     name: 'violin',
     type: 'custom',
     renderItem: renderViolin(
       violinItems,
-      peakForViolinItem,
-      castDensityBandwidth,
+      peakForViolinItem
     ),
     clip: true,
     data: violinItems.map(violin => ({
       name: violin.name,
       value: [
         violin.name,
-        violin.density[0]?.[0], //the lowest density value
-        violin.density.at(-1)?.[0], //the highest density value
+        violin.density[0]?.[0],
+        violin.density.at(-1)?.[0],
       ],
     })),
     encode: { x: 0, y: [1, 2] },

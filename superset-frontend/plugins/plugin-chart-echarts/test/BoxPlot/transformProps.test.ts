@@ -79,7 +79,7 @@ const buildChartPropsExt = (
       formData: { ...formData, ...formDataOverrides },
       width: 800,
       height: 600,
-      queriesData: queriesData,
+      queriesData,
       filterState,
       theme: supersetTheme,
     }) as unknown as EchartsBoxPlotChartProps;
@@ -232,11 +232,9 @@ describe('BoxPlot transformProps', () => {
   });
 
   test('box mode ignores __density', () => {
-    //create plot props without density metric in query series
     const withoutDensity = transformProps(
       buildChartPropsExt({ distributionStyle: 'box' }, chartProps.queriesData as QuerySeriesData[]),
     );
-    //create props including the density metric in query series
     const withUnusedDensity = transformProps(
       buildChartPropsExt({ distributionStyle: 'box' }, [
         { data: seriesWithDensity(chartProps) },
@@ -244,7 +242,7 @@ describe('BoxPlot transformProps', () => {
     );
     const withDensityEchartOptions = withUnusedDensity.echartOptions as any;
     const withoutDensityEchartOptions = withoutDensity.echartOptions as any;
-    //assert that the relevant props will be the same, because violinPlot distribution style was not specified
+    //assert that the relevant props will be the same
     expect(withDensityEchartOptions.series.map((s: any) => s.data)).toEqual(
       withoutDensityEchartOptions.series.map((s: any) => s.data),
     );
@@ -258,13 +256,12 @@ describe('BoxPlot transformProps', () => {
   });
 
   test('missing distribution style defaults to box', () => {
-    //create plot props with density metric in the query series, without specifying the distribution style
     const plotProps = transformProps(
       buildChartPropsExt({}, [{ data: seriesWithDensity(chartProps) }]),
     );
-    //get the series
-    const series = (plotProps.echartOptions as any).series;
-    //assert that the series name and type is 'boxplot'
+    
+    const { series } = plotProps.echartOptions as any;
+    
     expect(series[0].name).toBe('boxplot');
     expect(series[0].type).toBe('boxplot');
   });
@@ -292,11 +289,9 @@ describe('ViolinPlot transformProps', () => {
         { data: seriesWithDensity(chartProps) },
       ]),
     );
-    //get the series
-    const series = (plotProps.echartOptions as any).series;
-    //assert that the series name is 'violin plot'
+    
+    const { series } = plotProps.echartOptions as any;
     expect(series[0].name).toBe('violin');
-    //assert that the series type is 'custom'
     expect(series[0].type).toBe('custom');
   });
 
@@ -333,12 +328,15 @@ describe('ViolinPlot transformProps', () => {
         },
       ]),
     );
-    const renderItem = (plotProps.echartOptions as any).series[0].renderItem;
+    const { series } = plotProps.echartOptions as any;
+    const [seriesFirstIndex] = series
+    const { renderItem } = seriesFirstIndex;
+
     expect(renderItem({ dataIndex: 0 }, mockApi)).toBeNull();
     expect(renderItem({ dataIndex: 1 }, mockApi)).not.toBeNull()
   });
 
-  test('test single-point density renders a circle', () => {
+  test('single-point density renders a circle', () => {
     const plotProps = transformProps(
       buildChartPropsExt({ distributionStyle: 'violin' }, [
         {
@@ -351,7 +349,9 @@ describe('ViolinPlot transformProps', () => {
       ]),
     );
 
-    const renderItem = (plotProps.echartOptions as any).series[0].renderItem;
+    const { series } = plotProps.echartOptions as any;
+    const [seriesFirstIndex] = series
+    const { renderItem } = seriesFirstIndex;
     expect(renderItem({ dataIndex: 0 }, mockApi)).toEqual(
       expect.objectContaining({
         type: 'circle',
@@ -374,5 +374,43 @@ describe('ViolinPlot transformProps', () => {
     ).series.map((s: any) => s.clip);
     expect(clipSettings).toContain(true);
   });
+
+  test('violin width stays bounded for different density magnitudes', () => {
+    const scales = [0.5,1,1.5,2,3,4,5]
+
+    scales.forEach(scale => {
+
+      const plotProps = transformProps(
+        buildChartPropsExt({ distributionStyle: 'violin' }, [
+          { 
+            data: seriesWithDensity(chartProps).map(row => ({
+              ...row,
+              'AVG(averageprice)__density': charlotteDensity.map(
+                ([value, density]) => [value, density * scale] as [number, number],
+              )
+            }))
+          }
+        ])
+      )
+      
+      const { series } = plotProps.echartOptions as any;
+      const [seriesFirstIndex] = series
+      const { renderItem } = seriesFirstIndex;
+      const result = renderItem({ dataIndex: 0 }, mockApi);
+
+      expect(result.type).toBe('polygon')
+
+      const [bandwidth] = mockApi.size()
+      const maxWidthOfTheBand = 0.4
+      const widthLimit = maxWidthOfTheBand * bandwidth
+      const cx = 100
+
+    
+      const xValues = result.shape.points.map(([x]: number[]) => x);
+      expect(Math.min(...xValues)).toBeGreaterThanOrEqual(cx-widthLimit);
+      expect(Math.max(...xValues)).toBeLessThanOrEqual(cx+widthLimit);
+
+    })
+  })
 
 })
